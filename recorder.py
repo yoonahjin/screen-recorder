@@ -73,14 +73,14 @@ class Recorder(QObject):
         stamp=datetime.now().strftime('%Y%m%d_%H%M%S')
         self.output=SAVE/f'녹화_{stamp}.mp4'; self.temp=SAVE/f'녹화_{stamp}.mkv'; self.wav=SAVE/f'녹화_{stamp}.wav'
         # FFmpeg gdigrab records visible desktop pixels; thread_queue_size helps reduce frame drops.
-        encoders=subprocess.run([exe,'-hide_banner','-encoders'],capture_output=True,text=True,creationflags=subprocess.CREATE_NO_WINDOW).stdout
-        encoder=['-c:v','h264_nvenc','-preset','p5','-cq','18','-b:v','0'] if 'h264_nvenc' in encoders else ['-c:v','libx264','-preset','veryfast','-crf','17']
+        # CPU H.264 works on AMD, Intel and NVIDIA computers without GPU-specific drivers.
+        encoder=['-c:v','libx264','-preset','veryfast','-crf','18']
         cmd=[exe,'-hide_banner','-loglevel','error','-y','-thread_queue_size','1024','-f','gdigrab','-framerate','30',
              '-offset_x',str(x),'-offset_y',str(y),'-video_size',f'{w}x{h}','-i','desktop',
              *encoder,'-pix_fmt','yuv420p','-f','matroska',str(self.temp)]
         self.stop_event.clear(); self.paused.clear()
         self.proc=subprocess.Popen(cmd,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,creationflags=subprocess.CREATE_NO_WINDOW)
-        time.sleep(.4)
+        time.sleep(2.0)
         if self.proc.poll() is not None:
             msg=self.proc.stderr.read().decode(errors='replace'); raise RuntimeError('화면 녹화 시작 실패: '+msg[-700:])
         self.started=time.monotonic(); self.paused_total=0
@@ -117,7 +117,7 @@ class Recorder(QObject):
                 self.proc.terminate(); self.proc.wait(timeout=5)
         exe=ffmpeg()
         # Mux with separate audio track; shortest prevents audio overrun.
-        if self.temp.exists():
+        if self.temp.exists() and self.temp.stat().st_size > 1024:
             cmd=[exe,'-hide_banner','-loglevel','error','-y','-i',str(self.temp)]
             if self.wav.exists() and self.wav.stat().st_size>44: cmd+=['-i',str(self.wav),'-map','0:v:0','-map','1:a:0','-c:v','copy','-c:a','aac','-b:a','192k','-shortest']
             else: cmd+=['-c:v','copy']
@@ -125,6 +125,8 @@ class Recorder(QObject):
             p=subprocess.run(cmd,capture_output=True,creationflags=subprocess.CREATE_NO_WINDOW)
             if p.returncode: raise RuntimeError('MP4 저장 실패. 임시 MKV 파일은 보존되었습니다: '+p.stderr.decode(errors='replace')[-500:])
             self.temp.unlink(missing_ok=True); self.wav.unlink(missing_ok=True)
+        if not self.output.exists() or self.output.stat().st_size < 1024:
+            raise RuntimeError('녹화 데이터가 저장되지 않았습니다. 강의를 재생하기 전에 일반 영상으로 테스트하세요.')
         self.finished.emit(str(self.output))
 
 class Main(QWidget):
