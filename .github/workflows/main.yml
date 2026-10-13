@@ -1,0 +1,35 @@
+name: Windows EXE 만들기
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+
+      - name: 라이브러리 설치
+        run: python -m pip install -r requirements.txt pyinstaller
+
+      - name: FFmpeg 다운로드
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_download
+          $ffmpeg = Get-ChildItem ffmpeg_download -Filter ffmpeg.exe -Recurse | Select-Object -First 1
+          if (-not $ffmpeg) { throw 'ffmpeg.exe를 찾지 못했습니다' }
+          Copy-Item $ffmpeg.FullName ./ffmpeg.exe
+
+      - name: EXE 생성
+        shell: pwsh
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name '간편화면녹화기' --add-binary 'ffmpeg.exe;.' --collect-all soundcard recorder.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 간편화면녹화기-Windows
+          path: dist/*.exe
